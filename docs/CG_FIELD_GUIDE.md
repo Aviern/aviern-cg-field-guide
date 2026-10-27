@@ -38,7 +38,7 @@ budget are not the reference production's. Adapt the process; do not copy the re
 
 ### A.0 Operating instructions
 
-1. **Read the whole guide before acting.** It is about 1,450 lines; read it in parts until you reach the footer line at the end,
+1. **Read the whole guide before acting.** It is about 1,600 lines; read it in parts until you reach the footer line at the end,
    because the templates you will need are in section 10.
 2. **Verify before asking.** Check what you can yourself and report it, so the user only answers what you cannot check:
    - operating system, RAM and free disk where frames would land (`uname -a`, `free -g`, `df -h`; on Windows
@@ -315,7 +315,7 @@ Set `NVIDIA_DRIVER_CAPABILITIES=all`, or `libnvoptix` is not mounted and OptiX i
 | Ground surfaces, trees | Poly Haven CC0 scans | Renders anywhere. |
 | Plants | botaniq full (polygoniq), $199.99 studio (2-5 seats) | Commercial renders allowed; no redistribution; never send a scene file containing it to anyone. Check each licence on rendering with rented GPUs. |
 | Terrain | USGS 3DEP 1 m lidar and 10 m DEM, USDA NAIP 60 cm orthophotos (public domain, US only) | Avoid Google, Bing, Esri and Mapbox imagery (licence terms). Outside the US, use national open-data equivalents. |
-| Stills for print and web | A licensed real photo plate with the CG product composited in (4.5) | Usually faster and more convincing than a full 3D environment for stills. |
+| Stills for print and web | A licensed real photo plate with the CG product composited in (4.5.7) | Usually faster and more convincing than a full 3D environment for stills. |
 
 **Record each licence when the asset is acquired.** It decides which farm may render the asset and what may be shared.
 
@@ -529,47 +529,201 @@ creative director. Show at least two options that differ in one variable, side b
 stage is the most expensive mistake in the pipeline: when the environment is found during finals (the ground's colour and region,
 the terrain method, whether the background fades or stays 3D), each change re-renders every shot in that environment.
 
-### 4.5 Building each track: recipes
+### 4.5 Building the scenes
 
 Give each track one owner agent (on its own GPU machine at large scale), a brief, and these deliverables: a self-contained render
-bundle, a 540p preview with a contact sheet of every 12th frame, one full-resolution proof at the most demanding frame (with
-seconds, peak GPU memory and the 100 % crops checked), and a short report.
+bundle, a 540p preview with a contact sheet of every 12th frame, one full-resolution proof at the most demanding frame, and a
+short report.
 
-The measured recipes are for an aircraft. They map onto other products: "in motion against the sky" covers any product moving
-against a distant background (vehicles, drones, boats); "ground level outdoors" covers any product in a real-world setting;
-"cutaway" covers any interior reveal; "mechanisms" covers any moving parts.
+The recipes below are the build steps that shipped in the reference production (Blender 5.2, Cycles). The product was an
+aircraft; the scene types carry over to any product: 4.5.1 for anything outdoors at ground level, 4.5.2 for anything moving
+against sky and distant landscape, 4.5.3 when the camera needs real terrain below it, 4.5.4 for studio and cutaway shots, 4.5.5
+for moving parts and handling equipment, 4.5.6 for stylised looks. Values are starting points; tune them against your references.
 
-**Common to every photoreal shot (Blender/Cycles):** OptiX, adaptive sampling 256 spp (noise threshold 0.01, minimum 32), OIDN
-with albedo and normal passes, centred motion blur with a 0.5 shutter (1/48 s at 24 fps), half-float ZIP EXR in scene-linear.
-The product release is appended or linked, never rescaled (scale the camera distance instead). Boolean modifiers are baked per
-shot as the first `--python` script, never in the release.
+**Common to every photoreal scene:** OptiX, adaptive sampling 256 spp (noise threshold 0.01, minimum 32), OIDN with albedo and
+normal passes, centred motion blur with a 0.5 shutter, half-float ZIP EXR in scene-linear. The product is appended or linked from
+its release, never rescaled. Boolean modifiers are baked per shot as the first `--python` script.
 
-**In motion against the sky.**
-- Approaches that do not work: ground-level HDRIs for a camera far above the ground (the panorama puts the ground a few metres
-  below the camera); 3D terrain from DEM or lidar plus orthophotos seen from cruise altitude (reads as CG); rotating the HDRI to
-  fake forward motion (the background visibly warps).
-- What works: HDRIs shot from the right height (drone HDRIs for aerial shots). The camera sees the full-resolution plate (signs
-  and buildings painted out); other rays see a 4k copy. A sun lamp on the sun direction fitted from the plate, coloured from it.
-  Non-camera rays see the HDRI's ground half at saturation x0.15 and value x0.8, which removes coloured ground bounce on white
-  surfaces (underside saturation 0.275 to 0.080). A large ground plane removes residual warp. A shot looking steeply down needs a
-  full 3D world and probably a terrain artist.
-- 3.0-6.3 s per 4K frame, 12 GB GPU peak. Farm cost for all versions of four shots: $25.
+#### 4.5.1 Ground-level outdoor scene
 
-**Ground level outdoors.**
-- World: the product's surroundings fully 3D and built out to the horizon, meeting a 360-degree photo panorama.
-- Surfaces: CC0 scans at real scale, with the wear real surfaces have (for a runway: paving lanes, sealed cracks, tyre rubber,
-  worn paint with all text removed, settled edge dust, a geometry skirt along every pavement edge).
-- Plants: a commercial photoscanned library in species and tones that match the region and season. Expect iteration on variety
-  and dryness: more density is not more variety, and green reads wrong for a dry-season setting.
-- Indirect rays see ground and grass at saturation x0.15 and value x0.8, as above (an underside colour cast went from R x1.39 /
-  B x0.69 to R x1.12 / B x0.90).
-- The 3D-ground-to-panorama join is the hardest part; 7.5 has what works.
-- 33-71 s per 4K frame steady (+20 s first frame of each task, +85 s on a cold VM), 30-34 GB GPU, and 50-60 GB of host RAM per
-  Blender instance once dense 3D vegetation runs to the horizon (at most two instances per 176 GB VM). Dust as a baked VDB
-  sequence: 250-329 s per frame.
-- Farm cost for all versions of five shots: $1,102.
+A fully 3D foreground and mid-ground, built out to the horizon, in front of a 360° photo panorama.
 
-**Urban, dusk and night settings (general practice).** Build streets from scanned or modelled kits (CC0 libraries such as Poly
+1. **Assets.** Fetch CC0 scans and a panorama from the Poly Haven API; check each file's MD5 against the API and record its
+   sha256. Ground and asphalt scans at 4k, one aerial scan at 8k for large-scale variation, the panorama at 24k plus its 4k
+   version.
+2. **World.** Texture Coordinate (Generated) → Vector Rotate (Z) → two Environment Textures: the 24k file (Cubic) for camera rays,
+   the 4k file (Linear) for lighting. Each feeds a Background node; a Mix Shader picks between them with Factor = Light Path ›
+   Is Camera Ray. World sampling Manual, map resolution 4096.
+3. **Sun.** Locate the panorama's sun as the luminance-weighted centroid of its brightest 0.005 % of pixels. Light with the
+   panorama's own sun. Add a Sun lamp only for crisper shadows, and then clamp the sun out of the lighting texture and give the
+   lamp exactly the removed energy (angle about 0.6°), or the scene has two suns.
+4. **Rotation.** Set one rotation on every Vector Rotate (world, and any material that samples the panorama) so the camera looks
+   down open ground rather than at a hill, with the sun where the shot needs it.
+5. **Bounce colour.** In every ground and plant material: Base Color → Hue/Saturation/Value (Saturation 0.15, Value 0.8) → Mix
+   (Color) with Factor = Is Camera Ray, so camera rays see the original. In the world, apply the same HSV to the lighting texture
+   below the horizon (Separate XYZ of the rotated vector, Z → Map Range as the mask). White surfaces stop taking the ground's
+   colour.
+6. **Paved surfaces.** Texture Coordinate (Object) → Mapping with Scale = 1 / the scan's real size in metres, so every texture is
+   at true scale. Sample each scan twice at slightly different scale and rotation and blend the two with a noise mask to hide
+   tiling; add a 30 m macro layer from the aerial scan. Model the real wear: lane joints, tyre rubber, sealed cracks, worn paint,
+   no text.
+7. **Edges.** Run a 0.8 m geometry skirt from every pavement edge down into the terrain. Conform markings to the surface (+1 mm,
+   shadows off) and seat fixtures into the ground.
+8. **Grass (Geometry Nodes).** Per species: Distribute Points on Faces (Random) over the camera-visible ground, with density
+   falling with distance from the camera. Delete points by layered noise (clumps, bare patches, mown strips), by slope (Raycast
+   down to the terrain, Hit Normal Z) and on or near paving. Instance on Points with random rotation and per-instance height. For
+   a commercial plant library, make every linked ID local repeatedly until none is left (a one-pass make-local renders white),
+   and vary brightness per instance.
+9. **Out to the horizon.** Extend a flat far plain (it may undulate upward, never with a ridge at its edge) of world-anchored
+   field parcels about 220 m across, with tracks, and 3D grass, trees and hedgerows out to about 2.5 km. Add a band of scrub
+   300-1,600 m out to break the line where 3D meets photo. Budget for it: about +40 % render time and 50-60 GB of host RAM per
+   render process.
+10. **Distance grade.** On every ground and plant material, never on paving or buildings: r = Camera Data › View Distance → Map
+    Range (Smoothstep, 40 → 700 m); saturation × (1 − 0.15 r), value × (1 − 0.10 r), hue unchanged. Measure the photo's far
+    ground (hue, saturation, value) and tune toward it. A hue offset, or desaturation at constant value, turns a dry field pink
+    and brighter than the photo.
+11. **Check.** Before fixing anything a reviewer flags, read back the object at that pixel (Cryptomatte or a ray cast). Count 3D
+    pixels drawn over the photo's hills: the target is zero. 7.5 lists the join approaches that failed.
+
+#### 4.5.2 In flight against a drone HDRI
+
+For a product moving against sky and distant landscape. The background is a panorama shot from altitude: a ground-level panorama
+puts the ground a few metres below a camera that should be 200 m up.
+
+1. **Plates.** A 16-20k drone HDRI for camera rays and a 4k copy for lighting. If no 4k exists, make one by exact block averaging
+   (for example 5 × 5 down to 4000 × 2000, half-float ZIP EXR), which keeps the energy.
+2. **Paint-outs.** Remove signs and buildings from the camera plate only: tone-map the crop ((x / s)^(1/2.2), s = the crop's 99.5th
+   percentile), inpaint (LaMa, for example the `simple-lama-inpainting` package), invert the tone map, and blend back inside a
+   feathered mask so every pixel outside it keeps its float value.
+3. **World.** The camera/lighting split of 4.5.1 step 2, with the lighting branch's ground half desaturated (Hue/Saturation/Value
+   0.15 / 0.8, masked by Map Range on the rotated vector's Z).
+4. **Sun.** A Sun lamp (angle 0.53°) on the direction fitted from the plate, coloured from the glow around the sun. Remove the sun
+   from the lighting texture, or there are two. Strength is a look choice, because the energy fitted from the plate was unusable:
+   about 4 for a low sun; 12-16 with a fill of 0.8-1.0 for shots looking steeply down.
+5. **Exposure.** Camera plate strength about 1.8. To change exposure, scale the camera background, lighting background, sun and
+   ground plane together.
+6. **Parallax.** A panorama has none, so the background slides with the camera. Add a camera-only ground plane (a 400 km square)
+   at depth A below a projection centre placed at the camera's mid-shot position, with emission = the camera plate looked up
+   along normalize(Position − centre) and Emission Sampling set to None. It matches the plate at the centre frame and gains real
+   parallax and motion blur. A was 5,000 m for a low oblique and 900 m for a steep look-down; choose it from low-sample warp tests.
+7. **Near objects.** Anything close that needs parallax goes on a camera-only quad 100-300 m away (emission of the near plate,
+   Transparent BSDF by an alpha mask), and is painted out of the far plate.
+
+#### 4.5.3 Terrain from elevation data and aerial photos
+
+For shots where the camera must see real ground below it. Terrain built this way still read as CG to both reviewers from 900 m in
+the reference production: budget a terrain artist for close or steep views.
+
+1. **Elevation.** USGS 3DEP 1/3 arc-second (10 m) DEM tiles, plus 1 m lidar DEM tiles where they exist (both from the USGS
+   National Map). Download in parallel; write each to a `.part` file and rename it when complete. Outside the US, Mapzen
+   Terrarium tiles cover the world (height = R × 256 + G + B / 256 − 32768).
+2. **Orthophotos.** USDA NAIP from Microsoft Planetary Computer: STAC search (collection `naip`, your bounding box), keep the
+   newest year with at least 90 % of the best coverage, sign the URLs with the SAS token endpoint, download the COGs.
+3. **Reproject** to a local metric grid (UTM): a near grid of 16 km at 2 m (lidar averaged from 1 m, holes filled from the 10 m
+   DEM) and a far grid of 30 km at 10 m. Store heights minus the median as ZIP EXR.
+4. **De-light the photo.** Fit photo luminance against DEM hillshade over sun azimuth and elevation, then divide the shading out
+   (clipped to 0.35-2.5), so your own sun lights the terrain without doubled shadows.
+5. **Vegetation mask** from the photo's near-infrared band: NDVI = (NIR − R) / (NIR + R), threshold at the 94th percentile (at
+   least 0.10).
+6. **Mesh.** Geometry Nodes: Mesh Grid → Set Position into a log-polar layout (radius r = r_in × exp(u × ln(R1 / r_in)), 1,536
+   segments out to 120 km), so vertex spacing grows with distance at about 0.4 % of it. Heights from the DEM EXRs (Image
+   Texture, Cubic, Extend), near grid over far grid with a smoothstep at the near grid's edge. Earth curvature:
+   z −= r² / (2 × 6,371,000 m). Real geometry; no render-time displacement.
+7. **Shader.** Map the photo by world position in metres: the wide mosaic Mirror-extended to the horizon, the high-resolution
+   mosaic near the camera. Normalise albedo (mean about 0.22). Add scanned detail as a luminance ratio, faded out by Light Path ›
+   Ray Length between 2.5 and 7 km. Rock by slope, soil by brightness.
+8. **Fine relief as bump only:** bump height = lidar height − mesh height (the residual, clamped to ±6 m). Bumping the full height
+   counts every slope twice.
+9. **Trees and shrubs:** points on a world-anchored 4 m lattice out to 6 km, kept where the vegetation mask is high, thinned
+   between 3.5 and 6 km, Instance on Points.
+10. **Haze** on every terrain material: Mix Shader toward the lighting HDRI sampled along the flattened view direction, with
+    Factor = 1 − exp(−β × Ray Length), β = 4-6 × 10⁻⁵ per metre. Set Emission Sampling to None on it, or every terrain triangle
+    becomes a light.
+11. **As a backdrop for a ground-level scene:** the same terrain as a ring, with an inner radius of 2.5 km, a flat floor inside it,
+    and relief ramping in over 3 km.
+
+#### 4.5.4 Studio and cutaway
+
+A dark studio void; the cutaway version slices the product progressively to reveal what is inside.
+
+1. **Scene.** Start factory-empty, append the product, keep its root static at the origin, bake booleans.
+2. **World.** Background colour from a Mix with Factor = Is Camera Ray: camera rays see black, other rays a dim ambient (sRGB
+   about 0.02-0.03).
+3. **Floor.** A 60 m disc, Principled roughness 0.7, colour falling from dark grey to black with distance from the centre
+   (Texture Coordinate › Object → Vector Math Length → Map Range 4 → 22 m).
+4. **Lights.** Six rectangular area lights aimed at the product, all invisible to camera: key (azimuth 35°, elevation 52°, 7.5 m
+   away, 4 × 3 m, about 1,000 W, warm), top (6 × 2 m overhead), rim (azimuth 200°, elevation 30°, 7 × 1 m, cool), a second rim,
+   a large fill (8 × 8 m) and a low front light. Light-link the fill, rims and front to the product and its contents only, or
+   their edges draw lines across the floor.
+5. **Cutter.** An empty parented to the product root, keyed along one axis with eased keys. A plane exactly parallel to flat
+   panels opens them all in one frame; roll it a few degrees (4° worked).
+6. **Clip in every material.** A shared node group: Texture Coordinate › Object (the cutter) → Separate XYZ → Math Greater Than 0
+   gives Clip. Section = Geometry › Backfacing × (Light Path › Transparent Depth > 0.5), true only on inside faces seen through
+   the cut. Mix Shader 1 (Factor = Section) swaps the surface for a flat grey Emission; Mix Shader 2 (Factor = Clip) swaps it for
+   a Transparent BSDF. Set Emission Sampling to None on these materials and transparent bounces to 256, or stacked layers leave
+   black dots.
+7. **Inner wall.** A thin CAD skin reads hollow. Add Solidify (offset −1, even thickness off, rim on, 22-25 mm) with a
+   vertex-group weight that thins it to at most 45 % of the local skin-to-skin distance (measured by ray casting inward from each
+   vertex), or the wall pokes through the opposite skin at thin spots. Give the wall a lining material that is visible only
+   through the cut.
+8. **Things that vanish whole.** Cargo and parts smaller than 15 cm are not sliced: key `hide_render` (Constant interpolation) on
+   the frame the cutter passes their leading face.
+9. **Alpha version:** transparent film, with the floor invisible to camera but still lighting and shadowing the product.
+10. **Without the cut,** steps 1-4 are the studio setup for turntables and studio stills.
+
+#### 4.5.5 Mechanisms and a loading dock
+
+Moving parts on the product, and handling equipment around it (here an industrial arm loading parcels from a conveyor into the
+hold).
+
+1. **Base scene.** Start from an approved ground-level scene (world, sun and look already locked) and append the product fresh.
+   Park it by ray-casting the ground under each wheel.
+2. **Moving parts on a copy of the release.** A controller empty with one 0-1 property per part; hinge empties in Axis Angle
+   rotation (Euler gimbal-locks), driven by drivers; defaults reproduce the release exactly. Accept by numbers: closed and open
+   poses rendered against the untouched release (mean difference 1/255 or less), zero protrusion through the skin, a stated
+   clearance.
+3. **Arm rig.** Split a stock arm mesh into rigid links (compare two stored poses and group loose parts) and parent them base →
+   yaw → upper arm → forearm → gripper, each re-centred on its joint pivot. Solve inverse kinematics in Python (yaw by atan2, a
+   two-link law-of-cosines solve for shoulder and elbow, wrist set to keep the tool vertical) and key every frame. No IK
+   constraint is needed.
+4. **Choreography.** Phases (pick, grip, lift, swing, place, release, exit) with a smoothstep inside each; long moves along an
+   arc-length-sampled path with a trapezoid speed profile; ease every start and stop. A corner taken at constant speed reads as a
+   snap under motion blur.
+5. **Cables.** A NURBS curve with one full-strength hook per control point; stacked half-strength hooks do not average. Call
+   `view_layer.update()` before building anything on a rig made in the same script, or its world matrices are identity.
+6. **Conveyor.** A stock conveyor section matched to the dock height. Give the belt surface its own quad strip with a procedural
+   material whose Mapping location is keyed to the same travel function as the parcels.
+7. **Parcels.** Carried parcels follow the tool; after release their transform is fixed; queued parcels advance with a
+   smoothstep.
+8. **Per-frame gates before rendering:** clearances measured on evaluated geometry; parcels still after release, never
+   overlapping, never hidden; belt travel equal to parcel travel; a tool-step gate (a step more than 2× both neighbours and over
+   5 mm fails). Fix a failure by re-keying only its window (a cubic Hermite in joint space), then re-render and splice only those
+   frames.
+9. **Ground markings** conformed to the pavement surface (+1.5 mm).
+
+#### 4.5.6 Wireframe and clay
+
+**Wireframe.**
+1. **Proxy.** Join the visible meshes, drop parts under 5 cm, merge by 2 mm, then Decimate (Collapse, then Planar 4°) to about 8k
+   triangles. Replace rotors with circles at blade-tip and hub radius.
+2. **Workbench.** Flat lighting, Object colour; outline, cavity, shadows and specular off; anti-aliasing 32; black world;
+   transparent film.
+3. **Constant-width lines (Geometry Nodes).** Mesh to Curve → Set Curve Radius → Curve to Mesh with a Curve Circle profile
+   (resolution 4). Radius = distance(Position, camera location) × K, with K = 0.5 × line width in px × (sensor width / focal
+   length) / image width in px (2 px lines at 1920 wide). Split edges longer than 8 m first.
+
+**Clay.**
+1. Render the product release itself, with its own normals (re-shading a joined CAD mesh streaks), booleans baked.
+2. View Layer › Material Override: Principled, Base Color 0.72, Roughness 0.75, Specular IOR Level 0.08.
+3. World white at strength 0.25 for ambient light; transparent film keeps the background black.
+4. Three Disk area lights parented to the camera, invisible to camera: key 2,300 W, fill 1,900 W, rim 500 W.
+
+**Spinning parts in Workbench** (which has no motion blur): render 48 sub-frames across the shutter, accumulate them in float and
+save the mean. Do not clamp sub-frames to frame 1 or later, or frame 1 comes out sharp.
+
+#### 4.5.7 Other settings (general practice)
+
+**Urban, dusk and night.** Build streets from scanned or modelled kits (CC0 libraries such as Poly
 Haven, or commercial street and city packs, licences recorded) or composite onto a photo plate of a real street. Light from the
 scene's own sources: street and building lights as emitters, plus a dusk or night HDRI for the sky. For the product's own lights,
 note that renderer emission strength and Blender's light "watts" are not photometric units, so datasheet lumens or candela do not
@@ -577,38 +731,11 @@ transfer directly: calibrate on a test render against a photo of the real produc
 a reference light of known output in the same scene. Low light is noisy: lower the noise threshold or raise samples, and judge
 noise at 100 % on the darkest frames before the farm. Keep text, signs and people out unless the brief allows them.
 
-**Composited onto photo plates (general practice).** Shoot or license the plate, and record the real lens, sensor and camera
+**Composited onto photo plates.** Shoot or license the plate, and record the real lens, sensor and camera
 height. Capture an HDRI at the plate's location and time for lighting. Solve the camera with a tracker if the plate moves
 (Blender's motion tracker works). Render the product with a shadow-catcher ground matched to the plate's ground. Match lens
 distortion, grain and depth of field to the plate, and check contact shadows at 100 %. For stills, this route is usually faster
 and more convincing than building a full 3D environment.
-
-**Studio cutaways and studio product shots.**
-- Dark seamless void, six softboxes invisible to camera, fill and rims linked to the product and its contents only. Without the
-  cut, the same setup serves turntables and studio stills.
-- The cut is a per-pixel clip in every material, not geometry deletion (which leaves jagged rims and double edges). Cut faces
-  render as a flat grey section. An inner wall makes a thin skin read solid; thin it to at most 45 % of the local skin-to-skin
-  distance, or it comes through the opposite skin at thin spots.
-- Contents and parts under 15 cm vanish whole on the frame the slice reaches them, instead of being cut hollow.
-- Alpha versions: transparent film, finish with `--alpha` and encode the alpha master (4.9), review copies over 18 % grey.
-- 8-13 s per 4K frame, 11 GB GPU. Farm cost for three shots plus alpha: $46.
-
-**Stylised (wireframe and clay).**
-- Wireframe: Workbench on a proxy of about 7,800 triangles, every edge a square tube 2 px wide; 288 frames in about 60 s. Line Art
-  on a 300k-triangle body shows contour dropouts and flicker at 4K.
-- Clay: one material override on the real release; key, fill and rim parented to the camera; 5.5-8.9 s per frame.
-- Workbench has no motion blur: accumulate spinning parts from 48 sub-frames in linear light. Do not clamp sub-frames to t >= 1,
-  or half of them land on one instant and frame 1 is sharp.
-
-**Mechanisms (moving parts, handling equipment).**
-- A Codex agent can build mechanisms (retracting gear, opening doors or lids) on copies of the release, driven by one property
-  (0 = closed, 1 = open). Accept it on numbers: endpoint renders against the untouched release within mean 1/255 and p99.5 4/255
-  over the product's pixels; zero protrusion through the skin; a stated minimum clearance.
-- Scenes with handling equipment (for example an industrial arm loading the product): per-frame gates before any render for
-  clearance (gripper, forearm), objects static after release with no overlaps, conveyor travel equal to object travel, and a
-  tool-step gate (a frame step over 2x both neighbours and over 5 mm is a jump). When a fix touches only part of a shot,
-  re-render and splice only those frames.
-- 95-112 s per 4K frame. Farm cost for all versions of two shots: $334.
 
 ### 4.6 Proofs: on the final camera, at the shot's own settings
 
@@ -969,8 +1096,8 @@ shot spec. Output: half-float EXR, ZIP, RGBA, written by render_shot.py. EXR out
 keep the project look (<e.g. AgX, Medium High Contrast, EV 0>) set as the view so previews and check frames show it. The finish
 applies the look to the EXRs once.
 
-Lighting: HDRI plus a sun lamp fitted to the HDRI's sun where shadows must be crisp, or the scene's own practical lights at night;
-no extra fills unless labelled as a workaround. Physical units for emitters; the product's own lights at their real luminance.
+Lighting: the HDRI with its own sun, or a sun lamp fitted to it with the sun removed from the lighting texture (never both), or the
+scene's own practical lights at night; no extra fills unless labelled as a workaround. Physical units for emitters; the product's own lights at their real luminance.
 Non-camera rays see the HDRI's ground half (and large coloured ground) desaturated (saturation x0.15, value x0.8) so white
 surfaces do not take its colour.
 
